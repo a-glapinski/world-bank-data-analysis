@@ -1,0 +1,61 @@
+---
+title: "World Bank Data Analysis"
+author: "Adrian Glapiński"
+date: "`r format(Sys.time(), '%d/%m/%Y')`"
+output: 
+  html_document: 
+    keep_md: false
+    df_print: kable
+    code_folding: "hide"
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Executive summary
+TODO
+
+## Used libraries
+
+```{r load-libraries, message=FALSE, collapse=FALSE}
+library(tidyverse)
+library(readxl)
+library(janitor)
+library(gtsummary)
+```
+
+## Load data
+```{r load-data}
+wdi_df <- read_excel('./data/World_Development_Indicators.xlsx', 
+                 na = c('', '..')) %>% head(-5)
+
+currency_df <- read_csv('./data/CurrencyExchangeRates.csv', 
+                        col_types = cols(Date = col_date("%Y-%m-%d")))
+
+gold_prices_df <- read_csv('./data/Gold prices.csv')
+
+sp_df <- read_csv('./data/S&P Composite.csv')
+
+# TODO Read Bitcoin CSVs 
+```
+
+## Clean World Development Indicators data set
+
+```{r clean-wdi-data-set}
+wdi_cleaned_df <- wdi_df %>%
+    select(-c(`Country Code`, `Series Code`)) %>%
+    pivot_longer(-c(`Country Name`, `Series Name`), names_to = 'Year') %>%
+    pivot_wider(names_from = `Series Name`) %>%
+    mutate(`Country Name` = as_factor(`Country Name`),
+           Year = as.numeric(word(Year))) %>%
+    clean_names()
+```
+
+## Cleaned WDI data set summary
+
+```{r cleaned-wdi-data-set-summary}
+
+```
