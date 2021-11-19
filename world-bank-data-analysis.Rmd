@@ -35,23 +35,54 @@ wdi_df <- read_excel('./data/World_Development_Indicators.xlsx',
 currency_df <- read_csv('./data/CurrencyExchangeRates.csv', 
                         col_types = cols(Date = col_date("%Y-%m-%d")))
 
+# https://data.nasdaq.com/data/LBMA/GOLD-gold-price-london-fixing
 gold_prices_df <- read_csv('./data/Gold prices.csv')
 
+# https://data.nasdaq.com/data/YALE/SPCOMP-sp-composite
 sp_df <- read_csv('./data/S&P Composite.csv')
 
-# TODO Read Bitcoin CSVs 
+# https://data.nasdaq.com/data/BCHAIN-blockchain
+btc_diff_df <- read_csv('./data/bitcoin/BCHAIN-DIFF.csv')
+btc_hrate_df <- read_csv('./data/bitcoin/BCHAIN-HRATE.csv')
+btc_mkpru_df <- read_csv('./data/bitcoin/BCHAIN-MKPRU.csv')
+btc_trvou_df <- read_csv('./data/bitcoin/BCHAIN-TRVOU.csv')
 ```
 
-## Clean World Development Indicators data set
+## Clean data sets
 
-```{r clean-wdi-data-set}
+```{r clean-data-sets}
 wdi_cleaned_df <- wdi_df %>%
-    select(-c(`Country Code`, `Series Code`)) %>%
-    pivot_longer(-c(`Country Name`, `Series Name`), names_to = 'Year') %>%
-    pivot_wider(names_from = `Series Name`) %>%
-    mutate(`Country Name` = as_factor(`Country Name`),
-           Year = as.numeric(word(Year))) %>%
-    clean_names()
+  select(-c(`Country Code`, `Series Code`)) %>%
+  pivot_longer(-c(`Country Name`, `Series Name`), names_to = 'Year') %>%
+  pivot_wider(names_from = `Series Name`) %>%
+  mutate(`Country Name` = as_factor(`Country Name`),
+         Year = as.numeric(word(Year))) %>%
+  clean_names()
+
+#currency_df <- clean_names(currency_df)
+currency_df <- currency_df %>%
+  pivot_longer(cols = -Date, names_to = 'currency',
+               values_to = 'exchange_rate') %>%
+  clean_names() %>%
+  mutate(currency = as_factor(currency))
+
+gold_prices_df <- clean_names(gold_prices_df)
+
+sp_df <- clean_names(sp_df) %>% rename(date = year)
+
+btc_diff_df <- clean_names(btc_diff_df)
+btc_hrate_df <- clean_names(btc_hrate_df)
+btc_mkpru_df <- clean_names(btc_mkpru_df)
+btc_trvou_df <- clean_names(btc_trvou_df)
+
+btc_df <- btc_diff_df %>%
+  full_join(btc_hrate_df, by = 'date', suffix = c('_diff', '_hrate')) %>%
+  full_join(btc_mkpru_df, by = 'date') %>% 
+  full_join(btc_trvou_df, by = 'date', suffix = c('_mkpru', '_trvou')) %>%
+  rename(difficulty = value_diff,
+         hash_rate = value_hrate,
+         market_price_usd = value_mkpru,
+         exchange_trade_volume_usd = value_trvou)
 ```
 
 ## Cleaned WDI data set summary
@@ -59,3 +90,5 @@ wdi_cleaned_df <- wdi_df %>%
 ```{r cleaned-wdi-data-set-summary}
 
 ```
+
+
