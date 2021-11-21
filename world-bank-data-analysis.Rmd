@@ -6,7 +6,7 @@ output:
   html_document: 
     keep_md: false
     df_print: kable
-    code_folding: "hide"
+    #code_folding: "hide"
     toc: true
     toc_float: true
 ---
@@ -21,14 +21,22 @@ TODO
 ## Used libraries
 
 ```{r load-libraries, message=FALSE, collapse=FALSE}
+library(kableExtra)
+library(DT)
+
 library(tidyverse)
 library(readxl)
+library(lubridate)
 library(janitor)
+
+library(skimr)
 library(gtsummary)
+#library(summarytools)
+#library(desctable)
 ```
 
 ## Load data
-```{r load-data}
+```{r load-data, message=FALSE}
 wdi_df <- read_excel('./data/World_Development_Indicators.xlsx', 
                  na = c('', '..')) %>% head(-5)
 
@@ -85,10 +93,53 @@ btc_df <- btc_diff_df %>%
          exchange_trade_volume_usd = value_trvou)
 ```
 
-## Cleaned WDI data set summary
+## WDI data set summary
 
-```{r cleaned-wdi-data-set-summary}
-
+```{r wdi-data-set-summary}
+wdi_skimmed_df <- skim(wdi_cleaned_df) 
+summary(wdi_skimmed_df)
+wdi_skimmed_df %>%
+  yank('factor') %>% 
+  clean_names(case = 'title') %>%
+  datatable(options = list(scrollX = TRUE))
+wdi_skimmed_df %>%
+  yank('numeric') %>% 
+  clean_names(case = 'title') %>%
+  datatable(options = list(scrollX = TRUE)) %>% 
+  formatRound(3:10)
 ```
 
-
+```{r wdi-data-subset}
+wdi_subset_df <- wdi_cleaned_df %>%
+  select(country_name, year,
+         access_to_electricity_percent_of_population,
+         birth_rate_crude_per_1_000_people,
+         co2_emissions_metric_tons_per_capita,
+         consumer_price_index_2010_100,
+         expense_percent_of_gdp,
+         exports_of_goods_and_services_current_us,
+         gdp_current_us,
+         gdp_growth_annual_percent,
+         gdp_per_capita_current_us,
+         gdp_per_capita_growth_annual_percent,
+         gni_growth_annual_percent,
+         imports_of_goods_and_services_current_us,
+         inflation_consumer_prices_annual_percent,
+         life_expectancy_at_birth_total_years,
+         literacy_rate_adult_total_percent_of_people_ages_15_and_above,
+         mortality_rate_infant_per_1_000_live_births,
+         population_ages_0_14_percent_of_total_population,
+         population_ages_15_64_percent_of_total_population,
+         population_ages_65_and_above_percent_of_total_population,
+         population_growth_annual_percent,
+         population_total,
+         prevalence_of_undernourishment_percent_of_population,
+         real_interest_rate_percent,
+         s_p_global_equity_indices_annual_percent_change,
+         survival_to_age_65_female_percent_of_cohort,
+         survival_to_age_65_male_percent_of_cohort,
+         tax_revenue_percent_of_gdp,
+         unemployment_total_percent_of_total_labor_force_national_estimate,
+         urban_population_percent_of_total_population,
+         urban_population_growth_annual_percent)
+```
