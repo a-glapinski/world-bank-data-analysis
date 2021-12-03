@@ -6,10 +6,10 @@ output:
   html_document: 
     keep_md: false
     df_print: kable
-    #code_folding: "hide"
+    code_folding: "hide"
     toc: true
     toc_float: true
-    number_sections: true
+    #number_sections: true
 ---
 
 ```{r setup, include=FALSE}
@@ -22,6 +22,7 @@ TODO
 ## Used libraries
 
 ```{r load-libraries, message=FALSE, collapse=FALSE}
+library(knitr)
 library(kableExtra)
 library(DT)
 
@@ -44,6 +45,7 @@ library(gganimate)
 library(plotly)
 
 library(caret)
+library(missForest)
 
 library(countrycode)
 ```
@@ -110,35 +112,85 @@ btc_df <- btc_diff_df %>%
          exchange_trade_volume_usd = value_trvou)
 ```
 
-## WDI data set summary
+## Data set summary
 
-```{r wdi-data-set-summary}
-wdi_skimmed_df <- wdi_cleaned_df %>% 
+```{r}
+tribble(
+  ~Table, ~`No. of columns (attributes)`, ~`No. of rows (observations)`,
+  'World Development Indicators', ncol(wdi_cleaned_df), nrow(wdi_cleaned_df),
+  'Currency Exchange Rates', ncol(currency_df), nrow(currency_df),
+  'Gold prices', ncol(gold_prices_df), nrow(gold_prices_df),
+  'S&P Composite', ncol(sp_df), nrow(sp_df),
+  'Bitcoin', ncol(btc_df), nrow(btc_df)
+) %>% kbl() %>% kable_styling()
+```
+### World Development Indicators
+```{r}
+wdi_skim_df <- wdi_cleaned_df %>% 
   set_names(wdi_names) %>%
   skim() 
-summary(wdi_skimmed_df)
-wdi_skimmed_df %>%
+wdi_skim_df %>%
   yank('factor') %>% 
   clean_names(case = 'title') %>%
   datatable(options = list(scrollX = TRUE))
-wdi_skimmed_df %>%
+wdi_skim_df %>%
   yank('numeric') %>% 
   clean_names(case = 'title') %>%
   datatable(options = list(scrollX = TRUE)) %>% 
   formatRound(3:10)
-
-wdi_cor_df <- wdi_cleaned_df %>%
-  set_names(wdi_names) %>%
-  select(3:last_col()) %>%
-  correlate() %>%
-  shave() %>%
-  stretch() %>%
-  filter(abs(r) > 0.6, abs(r) < 0.99) %>%
-  arrange(desc(abs(r)))
-datatable(wdi_cor_df) %>% formatRound(3, digits = 5)
+```
+### Currency Exchange Rates
+```{r}
+currency_df %>% 
+  clean_names(case = 'title') %>%
+  skim() %>% 
+  clean_names(case = 'title') %>%
+  datatable(options = list(scrollX = TRUE)) %>% 
+  formatRound(c(3:6, 8, 10:15))
+```
+### Gold prices
+```{r}
+gold_prices_df %>% 
+  clean_names(case = 'title', abbreviations = c('USD', 'GBP', 'AM', 'PM')) %>%
+  skim() %>%
+  clean_names(case = 'title') %>%
+  datatable(options = list(scrollX = TRUE)) %>% 
+  formatRound(3:14)
+```
+### S&P Composite
+```{r}
+sp_df %>% 
+  clean_names(case = 'title', abbreviations = c('CPI')) %>% 
+  rename(`S&P Composite` = `S p Composite`) %>%
+  skim() %>% 
+  clean_names(case = 'title') %>%
+  datatable(options = list(scrollX = TRUE)) %>% 
+  formatRound(3:15)
+```
+### Bitcoin
+```{r}
+btc_df %>% 
+  clean_names(case = 'title', abbreviations = c('USD')) %>%
+  skim() %>%
+  clean_names(case = 'title') %>%
+  datatable(options = list(scrollX = TRUE)) %>% 
+  formatRound(3:13)
+```
+```{r}
+#wdi_cor_df <- wdi_cleaned_df %>%
+#  set_names(wdi_names) %>%
+#  select(where(~mean(is.na(.)) < 0.25)) %>%
+#  select(3:last_col()) %>%
+#  correlate() %>%
+#  shave() %>%
+#  stretch() %>%
+#  filter(abs(r) > 0.6, abs(r) < 0.99) %>%
+#  arrange(desc(abs(r)))
+#datatable(wdi_cor_df) %>% formatRound(3, digits = 5)
 ```
 
-```{r animated-plot, message = FALSE}
+```{r map-plot}
+# TODO Logarithmic scale for colorbar
 wdi_continents_df <- wdi_cleaned_df %>% 
   filter(!country_name %in% c('Channel Islands', 'Kosovo', 
                               'Low & middle income', 'Low income', 
@@ -149,6 +201,25 @@ wdi_continents_df <- wdi_cleaned_df %>%
                                      destination = "continent")) %>%
   relocate(continent)
 
+wdi_continents_df %>%
+  plot_geo(locationmode = 'country names') %>%
+  add_trace(z = ~gdp_per_capita_current_us, #zmin = 20, zmax = 150000, 
+            color = ~gdp_per_capita_current_us,
+            frame = ~year, 
+            colors = 'Blues',
+            text = ~country_name,
+            locations = ~country_name,
+            marker = list(line = list(color = toRGB("grey"), width = 0.5))) %>%
+  colorbar(title = 'GDP per capita (USD)') %>% 
+  layout(title = 'GDP per capita over years', 
+         geo = list(scope = 'world',
+                    countrycolor = toRGB('grey'),
+                    showcoastlines = TRUE)) %>%  
+  animation_opts(redraw = F) %>%  
+  plotly_build()
+```
+
+```{r animated-plot, message = FALSE, eval=FALSE}
 wdi_continents_df %>%
   ggplot(aes(gdp_per_capita_current_us, 
              life_expectancy_at_birth_total_years, 
@@ -170,34 +241,16 @@ wdi_continents_df %>%
   ease_aes('linear') 
 ```
 
-```{r map-plot}
-wdi_continents_df %>%
-  plot_geo(locationmode = 'country names') %>%
-  add_trace(z = ~population_total, zmin = 0, zmax = 1.5e9, 
-            color = ~population_total,
-            frame = ~year, 
-            colors = 'Blues',
-            text = ~country_name,
-            locations = ~country_name,
-            marker = list(line = list(color = toRGB("grey"), width = 0.5))) %>%
-  colorbar(title = 'Population') %>% 
-  layout(title = 'Population over time', 
-         geo = list(scope = 'world',
-                    countrycolor = toRGB('grey'),
-                    showcoastlines = TRUE)) %>%  
-  animation_opts(redraw = F) %>%  
-  plotly_build()
-```
-
 ```{r}
 yearly_gold_prices_df <- gold_prices_df %>% 
   mutate(date, gold_price_usd = ifelse(is.na(usd_pm), usd_am, usd_pm)) %>%
   group_by(year = year(date)) %>% 
   summarize(gold_price_usd = mean(gold_price_usd))
 
-#yearly_sp_prices_df <- sp_df %>% 
+#yearly_sp_df <- sp_df %>% 
 #  group_by(year = year(date)) %>%
-#  summarize(sp_price = mean(real_price))
+#  summarize(sp_composite = mean(s_p_composite), 
+#            sp_real_price = mean(real_price))
 
 #yearly_btc_prices_df <- btc_df %>%
 #  group_by(year = year(date)) %>%
@@ -208,13 +261,52 @@ world_wdi_gold_df <- wdi_cleaned_df %>%
   inner_join(yearly_gold_prices_df, by = 'year') %>%
   remove_empty() 
 
-world_gold_cor <- world_wdi_gold_df %>%
-  select(3:last_col(offset = 1)) %>%
-  cor(., world_wdi_gold_df$gold_price_usd) %>% 
-  as_tibble(rownames = "variable") %>%
-  rename(r = V1) %>% 
-  drop_na() %>% 
-  arrange(desc(abs(r)))
+#world_gold_cor <- world_wdi_gold_df %>%
+#  select(3:last_col(offset = 1)) %>%
+#  select(where(~mean(is.na(.)) < 0.25)) %>%
+#  cor(., world_wdi_gold_df$gold_price_usd) %>% 
+#  as_tibble(rownames = "variable") %>%
+#  rename(r = V1) %>% 
+#  drop_na() %>% 
+#  filter(abs(r) > 0.6) %>% 
+#  arrange(desc(abs(r)))
+
+world_gold_cor <- world_wdi_gold_df %>% 
+  select(3:last_col()) %>%
+  select(where(~mean(is.na(.)) < 0.25)) %>%
+  correlate() %>% 
+  focus(gold_price_usd) %>% 
+  arrange(desc(abs(gold_price_usd))) %>% 
+  filter(abs(gold_price_usd) > 0.6, abs(gold_price_usd) < 0.99)
 ```
 
+```{r regressor, eval=FALSE} 
+set.seed(23)
 
+miss_forest <- world_wdi_gold_df %>%
+  select(where(~mean(is.na(.)) < 0.25)) %>%
+  select_if(is.numeric) %>%
+  as.data.frame() %>%
+  missForest() 
+
+print(miss_forest$OOBerror)
+
+imputed_df <- miss_forest$ximp
+
+train_index <- createDataPartition(imputed_df$gold_price_usd, 
+                                   p = .70, 
+                                   list = FALSE)
+train_data <- imputed_df[train_index,]
+test_data <- imputed_df[-train_index,]
+
+ctrl <- trainControl(method = "repeatedcv",
+                     number = 5,
+                     repeats = 5)
+
+fit <- train(gold_price_usd ~ .,
+             data = train_data,
+             method = "glmnet",
+             trControl = ctrl)
+
+#varImp(fit)
+```
