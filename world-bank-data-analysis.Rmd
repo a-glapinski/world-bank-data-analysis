@@ -9,7 +9,7 @@ output:
     code_folding: "hide"
     toc: true
     toc_float: true
-    #number_sections: true
+    number_sections: false
 ---
 
 ```{r setup, include=FALSE}
@@ -20,16 +20,17 @@ knitr::opts_chunk$set(echo = TRUE)
 TODO
 
 ## Used libraries
-
 ```{r load-libraries, message=FALSE, collapse=FALSE}
 library(knitr)
+
 library(kableExtra)
 library(DT)
 
 library(tidyverse)
 library(readxl)
-library(lubridate)
 library(janitor)
+
+library(lubridate)
 
 library(skimr)
 library(gtsummary)
@@ -53,7 +54,7 @@ library(countrycode)
 ## Load data
 ```{r load-data, message=FALSE}
 wdi_df <- read_excel('./data/World_Development_Indicators.xlsx', 
-                 na = c('', '..')) %>% head(-5)
+                     na = c('', '..')) %>% head(-5)
 
 currency_df <- read_csv('./data/CurrencyExchangeRates.csv', 
                         col_types = cols(Date = col_date("%Y-%m-%d")))
@@ -72,31 +73,67 @@ btc_trvou_df <- read_csv('./data/bitcoin/BCHAIN-TRVOU.csv')
 ```
 
 ## Clean data sets
+While cleaning each data set, decisions described below were made.
 
-```{r clean-data-sets}
+### World Development Indicators
+1. `Country Code` and `Series Code` columns were dropped
+2. All columns except `Country Name` and `Series Name` were pivoted into 
+longer format; names of columns were stored into `Year` column 
+3. All columns were pivoted into wider format, taking column names from 
+`Series Name` column
+4. `Country Name` column was mutated into column of `factor` type and 
+`Year` column was mutated into column of `numeric` type
+5. Column names were cleaned - all words were transformed into `snake_case`
+```{r clean-wdi-data-set}
 wdi_cleaned_df <- wdi_df %>%
   select(-c(`Country Code`, `Series Code`)) %>%
   pivot_longer(-c(`Country Name`, `Series Name`), names_to = 'Year') %>%
   pivot_wider(names_from = `Series Name`) %>%
   mutate(`Country Name` = as_factor(`Country Name`),
          Year = as.numeric(word(Year))) 
-
 wdi_names <- names(wdi_cleaned_df) %>% 
   set_names(make_clean_names(.)) %>%
   as.list
 wdi_cleaned_df <- set_names(wdi_cleaned_df, names(wdi_names))
+```
 
+### Currency Exchange Rates
+1. All columns except `Date` were pivoted into longer format; names of columns
+were stored into `currency` column, values were stored into `exchange_rate` 
+column
+2. Column names were cleaned - all words were transformed into `snake_case`
+3. `currency` column was mutated into column of `factor` type
+```{r clean-currency-data-set}
 #currency_df <- clean_names(currency_df)
 currency_df <- currency_df %>%
   pivot_longer(cols = -Date, names_to = 'currency',
                values_to = 'exchange_rate') %>%
   clean_names() %>%
   mutate(currency = as_factor(currency))
+```
 
+### Gold prices
+1. Column names were cleaned - all words were transformed into `snake_case`
+```{r clean-gold-prices-data-set}
 gold_prices_df <- clean_names(gold_prices_df)
+```
 
+### S&P Composite
+1. Column names were cleaned - all words were transformed into `snake_case`
+2. `year` column was renamed to `date`
+```{r clean-sp-composite-data-set}
 sp_df <- clean_names(sp_df) %>% rename(date = year)
+```
 
+### Bitcoin
+1. Column names were cleaned - all words were transformed into `snake_case`
+2. All data frames loaded from CSV files were joined into one data frame
+3. Following columns were renamed:
+  - `value_diff` to `difficulty`
+  - `value_hrate` to `hash_rate`
+  - `value_mkpru` to `market_price_usd`
+  - `value_trvou` to `exchange_trade_volume_usd`
+```{r clean-btc-data-set}
 btc_diff_df <- clean_names(btc_diff_df)
 btc_hrate_df <- clean_names(btc_hrate_df)
 btc_mkpru_df <- clean_names(btc_mkpru_df)
@@ -112,9 +149,8 @@ btc_df <- btc_diff_df %>%
          exchange_trade_volume_usd = value_trvou)
 ```
 
-## Data set summary
-
-```{r}
+## Cleaned data set summary
+```{r data-set-summary}
 tribble(
   ~Table, ~`No. of columns (attributes)`, ~`No. of rows (observations)`,
   'World Development Indicators', ncol(wdi_cleaned_df), nrow(wdi_cleaned_df),
@@ -124,8 +160,9 @@ tribble(
   'Bitcoin', ncol(btc_df), nrow(btc_df)
 ) %>% kbl() %>% kable_styling()
 ```
+
 ### World Development Indicators
-```{r}
+```{r wdi-summary}
 wdi_skim_df <- wdi_cleaned_df %>% 
   set_names(wdi_names) %>%
   skim() 
@@ -139,54 +176,95 @@ wdi_skim_df %>%
   datatable(options = list(scrollX = TRUE)) %>% 
   formatRound(3:10)
 ```
+
 ### Currency Exchange Rates
-```{r}
+```{r currency-summary}
 currency_df %>% 
   clean_names(case = 'title') %>%
   skim() %>% 
   clean_names(case = 'title') %>%
   datatable(options = list(scrollX = TRUE)) %>% 
-  formatRound(c(3:6, 8, 10:15))
+  formatRound(c(4:6, 8, 10:15))
 ```
+
 ### Gold prices
-```{r}
+```{r gold-prices-summary}
 gold_prices_df %>% 
   clean_names(case = 'title', abbreviations = c('USD', 'GBP', 'AM', 'PM')) %>%
   skim() %>%
   clean_names(case = 'title') %>%
   datatable(options = list(scrollX = TRUE)) %>% 
-  formatRound(3:14)
+  formatRound(4:14)
 ```
+
 ### S&P Composite
-```{r}
+```{r sp-composite-summary}
 sp_df %>% 
   clean_names(case = 'title', abbreviations = c('CPI')) %>% 
   rename(`S&P Composite` = `S p Composite`) %>%
   skim() %>% 
   clean_names(case = 'title') %>%
   datatable(options = list(scrollX = TRUE)) %>% 
-  formatRound(3:15)
+  formatRound(4:15)
 ```
+
 ### Bitcoin
-```{r}
+```{r bitcoin-summary}
 btc_df %>% 
   clean_names(case = 'title', abbreviations = c('USD')) %>%
   skim() %>%
   clean_names(case = 'title') %>%
   datatable(options = list(scrollX = TRUE)) %>% 
-  formatRound(3:13)
+  formatRound(4:15)
 ```
-```{r}
-#wdi_cor_df <- wdi_cleaned_df %>%
-#  set_names(wdi_names) %>%
-#  select(where(~mean(is.na(.)) < 0.25)) %>%
-#  select(3:last_col()) %>%
-#  correlate() %>%
-#  shave() %>%
-#  stretch() %>%
-#  filter(abs(r) > 0.6, abs(r) < 0.99) %>%
-#  arrange(desc(abs(r)))
-#datatable(wdi_cor_df) %>% formatRound(3, digits = 5)
+
+## Finding correlations
+```{r correlations}
+wdi_filtered_df <- wdi_cleaned_df %>%
+  set_names(wdi_names) %>%
+  select(where(~mean(is.na(.)) < 0.25))
+
+wdi_cor_df <- wdi_filtered_df %>%
+  select(3:last_col()) %>%
+  correlate() %>%
+  shave() %>%
+  stretch() %>%
+  filter(abs(r) > 0.6, abs(r) < 0.99) %>%
+  arrange(desc(abs(r)))
+datatable(wdi_cor_df) %>% formatRound(3, digits = 5)
+
+yearly_gold_prices_df <- gold_prices_df %>% 
+  mutate(date, gold_price_usd = ifelse(is.na(usd_pm), usd_am, usd_pm)) %>%
+  group_by(year = year(date)) %>% 
+  summarize(gold_price_usd = mean(gold_price_usd))
+
+#yearly_sp_df <- sp_df %>% 
+#  group_by(year = year(date)) %>%
+#  summarize(sp_composite = mean(s_p_composite), 
+#            sp_real_price = mean(real_price))
+
+#yearly_btc_prices_df <- btc_df %>%
+#  group_by(year = year(date)) %>%
+#  summarize(btc_price = mean(market_price_usd))
+
+world_wdi_gold_df <- wdi_cleaned_df %>%
+  filter(country_name == 'World') %>% 
+  set_names(wdi_names) %>%
+  inner_join(yearly_gold_prices_df, by = c('Year' = 'year')) %>%
+  rename(`Gold price (USD)` = gold_price_usd) %>%
+  remove_empty() 
+
+world_gold_cor <- world_wdi_gold_df %>% 
+  select(3:last_col()) %>%
+  select(where(~mean(is.na(.)) < 0.25)) %>%
+  correlate() %>% 
+  focus(`Gold price (USD)`) %>% 
+  arrange(desc(abs(`Gold price (USD)`))) %>% 
+  filter(abs(`Gold price (USD)`) > 0.6, abs(`Gold price (USD)`) < 0.99) %>%
+  rename(`Gold price (USD) correlation` = `Gold price (USD)`,
+         Variable = term) 
+
+datatable(world_gold_cor) %>% formatRound(2, digits = 5)
 ```
 
 ```{r map-plot}
@@ -241,46 +319,8 @@ wdi_continents_df %>%
   ease_aes('linear') 
 ```
 
-```{r}
-yearly_gold_prices_df <- gold_prices_df %>% 
-  mutate(date, gold_price_usd = ifelse(is.na(usd_pm), usd_am, usd_pm)) %>%
-  group_by(year = year(date)) %>% 
-  summarize(gold_price_usd = mean(gold_price_usd))
-
-#yearly_sp_df <- sp_df %>% 
-#  group_by(year = year(date)) %>%
-#  summarize(sp_composite = mean(s_p_composite), 
-#            sp_real_price = mean(real_price))
-
-#yearly_btc_prices_df <- btc_df %>%
-#  group_by(year = year(date)) %>%
-#  summarize(btc_price = mean(market_price_usd))
-
-world_wdi_gold_df <- wdi_cleaned_df %>%
-  filter(country_name == 'World') %>% 
-  inner_join(yearly_gold_prices_df, by = 'year') %>%
-  remove_empty() 
-
-#world_gold_cor <- world_wdi_gold_df %>%
-#  select(3:last_col(offset = 1)) %>%
-#  select(where(~mean(is.na(.)) < 0.25)) %>%
-#  cor(., world_wdi_gold_df$gold_price_usd) %>% 
-#  as_tibble(rownames = "variable") %>%
-#  rename(r = V1) %>% 
-#  drop_na() %>% 
-#  filter(abs(r) > 0.6) %>% 
-#  arrange(desc(abs(r)))
-
-world_gold_cor <- world_wdi_gold_df %>% 
-  select(3:last_col()) %>%
-  select(where(~mean(is.na(.)) < 0.25)) %>%
-  correlate() %>% 
-  focus(gold_price_usd) %>% 
-  arrange(desc(abs(gold_price_usd))) %>% 
-  filter(abs(gold_price_usd) > 0.6, abs(gold_price_usd) < 0.99)
-```
-
-```{r regressor, eval=FALSE} 
+## Regressor
+```{r gold-price-regressor, eval=FALSE} 
 set.seed(23)
 
 miss_forest <- world_wdi_gold_df %>%
