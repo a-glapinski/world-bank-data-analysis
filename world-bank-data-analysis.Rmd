@@ -36,8 +36,6 @@ library(lubridate)
 
 library(skimr)
 library(gtsummary)
-#library(summarytools)
-#library(desctable)
 
 library(corrr)
 
@@ -187,6 +185,8 @@ currency_df %>%
   clean_names(case = 'title') %>%
   datatable(options = list(scrollX = TRUE)) %>% 
   formatRound(c(4:6, 8, 10:15))
+
+# TODO Describe DF is not correct and currency exchange rates are unambiguous
 ```
 
 ### Gold prices
@@ -247,37 +247,20 @@ ggplotly(corr_plot)
 #datatable(wdi_cor_df) %>% formatRound(3, digits = 5)
 ```
 
-```{r gdp-per-capita-map-plot, out.width='100%'}
+```{r gdp-per-capita-life-expectancy-cor, out.width='100%'}
 wdi_map_df <- wdi_cleaned_df %>% 
   filter(!country_name %in% c('Channel Islands', 'Kosovo', 
                               'Low & middle income', 'Low income', 
                               'Lower middle income', 'Middle income', 'World',
-                              'Upper middle income', 'High income')) %>%
+                              'Upper middle income', 'High income')) 
+
+wdi_continents_df <- wdi_map_df %>%
   add_column(continent = countrycode(sourcevar = .$country_name,
                                      origin = "country.name",
                                      destination = "continent")) %>%
   relocate(continent)
 
-wdi_map_df %>%
-  plot_geo(locationmode = 'country names') %>%
-  add_trace(z = ~gdp_per_capita_current_us, #zmin = 20, zmax = 150000, 
-            color = ~gdp_per_capita_current_us,
-            frame = ~year, 
-            colors = 'Blues',
-            text = ~country_name,
-            locations = ~country_name,
-            marker = list(line = list(color = toRGB("grey"), width = 0.5))) %>%
-  colorbar(title = 'GDP per capita (USD)') %>% 
-  layout(title = 'GDP per capita over years',
-         geo = list(scope = 'world',
-                    countrycolor = toRGB('grey'),
-                    showcoastlines = TRUE)) %>%  
-  animation_opts(redraw = F) %>%  
-  plotly_build()
-```
-
-```{r gdp-per-capita-life-expectancy-plot, message = FALSE}
-wdi_map_df %>%
+wdi_continents_df %>%
   ggplot(aes(gdp_per_capita_current_us, 
              life_expectancy_at_birth_total_years, 
              size = population_total, 
@@ -296,6 +279,91 @@ wdi_map_df %>%
        caption = "") +
   transition_time(year) +
   ease_aes('linear') 
+
+wdi_life_expectancy_cor_df <- wdi_map_df %>% 
+  group_by(country_name) %>%
+  summarize(correlation = cor(gdp_per_capita_current_us,
+                              life_expectancy_at_birth_total_years, 
+                              use = 'pairwise.complete.obs'))
+
+wdi_life_expectancy_cor_df %>%
+  plot_geo(locationmode = 'country names') %>%
+  add_trace(z = ~correlation, zmin = -1, zmax = 1, 
+            color = ~correlation,
+            colors = c("blue", "white", "red"),
+            text = ~country_name,
+            locations = ~country_name,
+            marker = list(line = list(color = toRGB("grey"), width = 0.5))) %>%
+  colorbar(title = 'Correlation') %>% 
+  layout(title = 'GDP per capita (USD) - life expectancy (years) correlation',
+         geo = list(scope = 'world',
+                    projection = list(type = 'natural earth'),
+                    countrycolor = toRGB('grey'),
+                    showframe = TRUE,
+                    showcoastlines = TRUE)) %>%  
+  plotly_build()
+
+#wdi_map_df %>%
+#  plot_geo(locationmode = 'country names') %>%
+#  add_trace(z = ~gdp_per_capita_current_us, #zmin = 20, zmax = 150000, 
+#            color = ~gdp_per_capita_current_us,
+#            frame = ~year, 
+#            colors = 'Blues',
+#            text = ~country_name,
+#            locations = ~country_name,
+#            marker = list(line = list(color = toRGB("grey"), width = 0.5))) %>%
+#  colorbar(title = 'GDP per capita (USD)') %>% 
+#  layout(title = 'GDP per capita over years',
+#         geo = list(scope = 'world',
+#                    projection = list(type = 'natural earth'),
+#                    countrycolor = toRGB('grey'),
+#                    showframe = TRUE,
+#                    showcoastlines = TRUE)) %>%  
+#  animation_opts(redraw = F) %>%  
+#  plotly_build()
+```
+
+```{r gdp-per-capita-mortality-rate-cor, message = FALSE, out.width='100%'}
+infmort_plot <- wdi_continents_df %>%
+  filter(country_name %in% c("United States", "Tonga", "Colombia", "Grenada", 
+                             "Sri Lanka", "Malta", "Germany", "Japan", "Sweden", 
+                             "Netherlands"),
+         year %in% 1999:2015) %>%
+  rename(`GDP per capita (USD)` = gdp_per_capita_current_us,
+         `Mortality rate, infant (per 1,000 live births)` = mortality_rate_infant_per_1_000_live_births,
+         Continent = continent,
+         Country = country_name) %>%
+  ggplot(aes(x = `GDP per capita (USD)`, 
+             y = `Mortality rate, infant (per 1,000 live births)`,
+             color = Continent,
+             tooltip = Country)) + 
+  geom_point() +
+  facet_wrap(~year)
+
+ggplotly(infmort_plot)
+
+wdi_mortality_rate_cor_df <- wdi_map_df %>% 
+  group_by(country_name) %>%
+  summarize(correlation = cor(gdp_per_capita_current_us,
+                              mortality_rate_infant_per_1_000_live_births, 
+                              use = 'pairwise.complete.obs'))
+
+wdi_mortality_rate_cor_df %>%
+  plot_geo(locationmode = 'country names') %>%
+  add_trace(z = ~correlation, zmin = -1, zmax = 1, 
+            color = ~correlation,
+            colors = c("blue", "white", "red"),
+            text = ~country_name,
+            locations = ~country_name,
+            marker = list(line = list(color = toRGB("grey"), width = 0.5))) %>%
+  colorbar(title = 'Correlation') %>% 
+  layout(title = 'GDP per capita (USD) - mortality rate, infant (per 1,000 live births) correlation',
+         geo = list(scope = 'world',
+                    projection = list(type = 'natural earth'),
+                    countrycolor = toRGB('grey'),
+                    showframe = TRUE,
+                    showcoastlines = TRUE)) %>%  
+  plotly_build()
 ```
 
 ```{r gold-correlation}
@@ -308,14 +376,21 @@ yearly_sp_df <- sp_df %>%
   group_by(year = year(date)) %>%
   summarize(sp_composite = mean(s_p_composite))
 
+# Discarded due to lack of data before 2009
+#yearly_btc_prices_df <- btc_df %>%
+#  group_by(year = year(date)) %>%
+#  summarize(btc_price_usd = mean(market_price_usd))
+
 world_joined_df <- wdi_cleaned_df %>%
   filter(country_name == 'World') %>% 
   set_names(wdi_names) %>%
   inner_join(yearly_gold_prices_df, by = c('Year' = 'year')) %>%
   inner_join(yearly_sp_df, by = c('Year' = 'year')) %>%
+  #inner_join(yearly_btc_prices_df, by = c('Year' = 'year')) %>%
   rename(`Gold price (USD)` = gold_price_usd,
-         `S&P Composite` = sp_composite) %>%
-  remove_empty() %>%
+         `S&P Composite` = sp_composite,
+         #`BTC price (USD)` = btc_price_usd
+         ) %>%
   select(where(~mean(is.na(.)) < 0.25))
 
 world_gold_cor <- world_joined_df %>% 
@@ -334,12 +409,12 @@ datatable(world_gold_cor) %>% formatRound(2, digits = 5)
 ```{r gold-price-regressor, eval=FALSE} 
 set.seed(23)
 
-top_40_correlated_cols <- world_gold_cor %>% 
-  head(40) %>% 
-  pull(Variable) 
+top_economic_correlated_variables <- world_gold_cor %>%
+  pull(Variable) %>%
+  .[c(2, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14, 35, 37, 38, 40, 41)]
 
 miss_forest <- world_joined_df %>%
-  select(top_40_correlated_cols, `Gold price (USD)`) %>%
+  select(all_of(top_economic_correlated_variables), `Gold price (USD)`) %>%
   as.data.frame() %>%
   missForest() 
 
@@ -362,5 +437,5 @@ fit <- train(`Gold price (USD)` ~ .,
              method = "glmnet",
              trControl = ctrl)
 
-#varImp(fit)
+varImp(fit)
 ```
