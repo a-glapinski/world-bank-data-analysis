@@ -14,13 +14,15 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
 ```
 
 ## Executive summary
 TODO
 
 ## Used libraries
-```{r load-libraries, message=FALSE, collapse=FALSE}
+```{r load-libraries, message=FALSE, class.source="fold-show"}
 library(knitr)
 
 library(kableExtra)
@@ -38,11 +40,11 @@ library(gtsummary)
 #library(desctable)
 
 library(corrr)
-#library(corrplot)
 
 library(ggplot2)
 library(ggthemes)
 library(gganimate)
+library(ggcorrplot)
 library(plotly)
 
 library(caret)
@@ -219,57 +221,34 @@ btc_df %>%
 ```
 
 ## Finding correlations
-```{r correlations}
-wdi_filtered_df <- wdi_cleaned_df %>%
+```{r wdi-correlations}
+wdi_na_filtered_df <- wdi_cleaned_df %>%
   set_names(wdi_names) %>%
   select(where(~mean(is.na(.)) < 0.25))
 
-wdi_cor_df <- wdi_filtered_df %>%
+corr_plot <- wdi_na_filtered_df %>%
   select(3:last_col()) %>%
-  correlate() %>%
-  shave() %>%
-  stretch() %>%
-  filter(abs(r) > 0.6, abs(r) < 0.99) %>%
-  arrange(desc(abs(r)))
-datatable(wdi_cor_df) %>% formatRound(3, digits = 5)
+  cor(use = 'pairwise.complete.obs') %>% 
+  ggcorrplot() +
+  labs(x = 'Variable 1', y = 'Variable 2') + 
+  theme_classic() +
+  theme(axis.text = element_blank(), axis.ticks = element_blank()) 
 
-yearly_gold_prices_df <- gold_prices_df %>% 
-  mutate(date, gold_price_usd = ifelse(is.na(usd_pm), usd_am, usd_pm)) %>%
-  group_by(year = year(date)) %>% 
-  summarize(gold_price_usd = mean(gold_price_usd))
+ggplotly(corr_plot)
 
-#yearly_sp_df <- sp_df %>% 
-#  group_by(year = year(date)) %>%
-#  summarize(sp_composite = mean(s_p_composite), 
-#            sp_real_price = mean(real_price))
-
-#yearly_btc_prices_df <- btc_df %>%
-#  group_by(year = year(date)) %>%
-#  summarize(btc_price = mean(market_price_usd))
-
-world_wdi_gold_df <- wdi_cleaned_df %>%
-  filter(country_name == 'World') %>% 
-  set_names(wdi_names) %>%
-  inner_join(yearly_gold_prices_df, by = c('Year' = 'year')) %>%
-  rename(`Gold price (USD)` = gold_price_usd) %>%
-  remove_empty() 
-
-world_gold_cor <- world_wdi_gold_df %>% 
-  select(3:last_col()) %>%
-  select(where(~mean(is.na(.)) < 0.25)) %>%
-  correlate() %>% 
-  focus(`Gold price (USD)`) %>% 
-  arrange(desc(abs(`Gold price (USD)`))) %>% 
-  filter(abs(`Gold price (USD)`) > 0.6, abs(`Gold price (USD)`) < 0.99) %>%
-  rename(`Gold price (USD) correlation` = `Gold price (USD)`,
-         Variable = term) 
-
-datatable(world_gold_cor) %>% formatRound(2, digits = 5)
+#wdi_cor_df <- wdi_na_filtered_df %>%
+#  select(3:last_col()) %>%
+#  correlate() %>%
+#  shave() %>%
+#  stretch() %>%
+#  filter(abs(r) > 0.6, abs(r) < 0.99) %>%
+#  arrange(desc(abs(r)))
+#
+#datatable(wdi_cor_df) %>% formatRound(3, digits = 5)
 ```
 
-```{r map-plot}
-# TODO Logarithmic scale for colorbar
-wdi_continents_df <- wdi_cleaned_df %>% 
+```{r gdp-per-capita-map-plot, out.width='100%'}
+wdi_map_df <- wdi_cleaned_df %>% 
   filter(!country_name %in% c('Channel Islands', 'Kosovo', 
                               'Low & middle income', 'Low income', 
                               'Lower middle income', 'Middle income', 'World',
@@ -279,7 +258,7 @@ wdi_continents_df <- wdi_cleaned_df %>%
                                      destination = "continent")) %>%
   relocate(continent)
 
-wdi_continents_df %>%
+wdi_map_df %>%
   plot_geo(locationmode = 'country names') %>%
   add_trace(z = ~gdp_per_capita_current_us, #zmin = 20, zmax = 150000, 
             color = ~gdp_per_capita_current_us,
@@ -289,7 +268,7 @@ wdi_continents_df %>%
             locations = ~country_name,
             marker = list(line = list(color = toRGB("grey"), width = 0.5))) %>%
   colorbar(title = 'GDP per capita (USD)') %>% 
-  layout(title = 'GDP per capita over years', 
+  layout(title = 'GDP per capita over years',
          geo = list(scope = 'world',
                     countrycolor = toRGB('grey'),
                     showcoastlines = TRUE)) %>%  
@@ -297,8 +276,8 @@ wdi_continents_df %>%
   plotly_build()
 ```
 
-```{r animated-plot, message = FALSE, eval=FALSE}
-wdi_continents_df %>%
+```{r gdp-per-capita-life-expectancy-plot, message = FALSE}
+wdi_map_df %>%
   ggplot(aes(gdp_per_capita_current_us, 
              life_expectancy_at_birth_total_years, 
              size = population_total, 
@@ -310,7 +289,7 @@ wdi_continents_df %>%
                         range = c(1, 8)) +
   scale_x_log10(labels = scales::comma) +
   theme_bw(base_size = 8) +
-  labs(title = "{round(frame_time)}", 
+  labs(title = "Year: {round(frame_time)}", 
        x = 'GDP per capita (USD)',
        y = 'Life expectancy (years)', 
        color = "Continent",
@@ -319,13 +298,48 @@ wdi_continents_df %>%
   ease_aes('linear') 
 ```
 
+```{r gold-correlation}
+yearly_gold_prices_df <- gold_prices_df %>% 
+  mutate(date, gold_price_usd = ifelse(is.na(usd_pm), usd_am, usd_pm)) %>%
+  group_by(year = year(date)) %>% 
+  summarize(gold_price_usd = mean(gold_price_usd))
+
+yearly_sp_df <- sp_df %>% 
+  group_by(year = year(date)) %>%
+  summarize(sp_composite = mean(s_p_composite))
+
+world_joined_df <- wdi_cleaned_df %>%
+  filter(country_name == 'World') %>% 
+  set_names(wdi_names) %>%
+  inner_join(yearly_gold_prices_df, by = c('Year' = 'year')) %>%
+  inner_join(yearly_sp_df, by = c('Year' = 'year')) %>%
+  rename(`Gold price (USD)` = gold_price_usd,
+         `S&P Composite` = sp_composite) %>%
+  remove_empty() %>%
+  select(where(~mean(is.na(.)) < 0.25))
+
+world_gold_cor <- world_joined_df %>% 
+  select(3:last_col()) %>%
+  correlate() %>% 
+  focus(`Gold price (USD)`) %>% 
+  arrange(desc(abs(`Gold price (USD)`))) %>% 
+  filter(abs(`Gold price (USD)`) > 0.6, abs(`Gold price (USD)`) < 0.95) %>%
+  rename(`Gold price (USD) correlation` = `Gold price (USD)`,
+         Variable = term) 
+
+datatable(world_gold_cor) %>% formatRound(2, digits = 5)
+```
+
 ## Regressor
 ```{r gold-price-regressor, eval=FALSE} 
 set.seed(23)
 
-miss_forest <- world_wdi_gold_df %>%
-  select(where(~mean(is.na(.)) < 0.25)) %>%
-  select_if(is.numeric) %>%
+top_40_correlated_cols <- world_gold_cor %>% 
+  head(40) %>% 
+  pull(Variable) 
+
+miss_forest <- world_joined_df %>%
+  select(top_40_correlated_cols, `Gold price (USD)`) %>%
   as.data.frame() %>%
   missForest() 
 
@@ -333,7 +347,7 @@ print(miss_forest$OOBerror)
 
 imputed_df <- miss_forest$ximp
 
-train_index <- createDataPartition(imputed_df$gold_price_usd, 
+train_index <- createDataPartition(imputed_df$`Gold price (USD)`, 
                                    p = .70, 
                                    list = FALSE)
 train_data <- imputed_df[train_index,]
@@ -343,7 +357,7 @@ ctrl <- trainControl(method = "repeatedcv",
                      number = 5,
                      repeats = 5)
 
-fit <- train(gold_price_usd ~ .,
+fit <- train(`Gold price (USD)` ~ .,
              data = train_data,
              method = "glmnet",
              trControl = ctrl)
