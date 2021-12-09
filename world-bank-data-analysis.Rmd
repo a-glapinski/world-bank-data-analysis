@@ -1,5 +1,5 @@
 ---
-title: "World Bank Data Analysis"
+title: "World Development Indicators and Gold Price Data Analysis"
 author: "Adrian Glapiński"
 date: "`r format(Sys.time(), '%d/%m/%Y')`"
 output: 
@@ -21,8 +21,28 @@ knitr::opts_chunk$set(warning = FALSE)
 ## Executive summary
 TODO
 
-## Used libraries
-```{r load-libraries, message=FALSE, class.source="fold-show"}
+## Libraries used
+Following libraries and dependencies were used in the report:
+ - `knitr`
+ - `kableExtra`
+ - `DT`
+ - `tidyverse`
+ - `readxl`
+ - `janitor`
+ - `lubridate`
+ - `skimr`
+ - `corrr`
+ - `ggplot2`
+ - `ggthemes`
+ - `gganimate`
+ - `ggcorrplot`
+ - `plotly`
+ - `caret`
+ - `missForest`
+ - `countrycode`
+
+```{r load-libraries, message=FALSE}
+#class.source="fold-show"
 library(knitr)
 
 library(kableExtra)
@@ -35,7 +55,6 @@ library(janitor)
 library(lubridate)
 
 library(skimr)
-library(gtsummary)
 
 library(corrr)
 
@@ -51,8 +70,17 @@ library(missForest)
 library(countrycode)
 ```
 
-## Load data
+## Loading data
+The input data includes information on the economic indicators and 
+development of each country as measured by over 200 statistics. In addition, 
+it includes information on currency exchange rates, gold prices, 
+Bitcoin trading, and the monthly performance of the S&P Composite. 
+
+The data was collected by various institutions, 
+notably the World Bank and Nasdaq.
+
 ```{r load-data, message=FALSE}
+# https://data.worldbank.org/
 wdi_df <- read_excel('./data/World_Development_Indicators.xlsx', 
                      na = c('', '..')) %>% head(-5)
 
@@ -72,7 +100,7 @@ btc_mkpru_df <- read_csv('./data/bitcoin/BCHAIN-MKPRU.csv')
 btc_trvou_df <- read_csv('./data/bitcoin/BCHAIN-TRVOU.csv')
 ```
 
-## Clean data sets
+## Cleaning data sets
 While cleaning each data set, decisions described below were made.
 
 ### World Development Indicators
@@ -104,7 +132,6 @@ column
 2. Column names were cleaned - all words were transformed into `snake_case`
 3. `currency` column was mutated into column of `factor` type
 ```{r clean-currency-data-set}
-#currency_df <- clean_names(currency_df)
 currency_df <- currency_df %>%
   pivot_longer(cols = -Date, names_to = 'currency',
                values_to = 'exchange_rate') %>%
@@ -129,10 +156,10 @@ sp_df <- clean_names(sp_df) %>% rename(date = year)
 1. Column names were cleaned - all words were transformed into `snake_case`
 2. All data frames loaded from CSV files were joined into one data frame
 3. Following columns were renamed:
-  - `value_diff` to `difficulty`
-  - `value_hrate` to `hash_rate`
-  - `value_mkpru` to `market_price_usd`
-  - `value_trvou` to `exchange_trade_volume_usd`
+    - `value_diff` to `difficulty`
+    - `value_hrate` to `hash_rate`
+    - `value_mkpru` to `market_price_usd`
+    - `value_trvou` to `exchange_trade_volume_usd`
 ```{r clean-btc-data-set}
 btc_diff_df <- clean_names(btc_diff_df)
 btc_hrate_df <- clean_names(btc_hrate_df)
@@ -150,6 +177,8 @@ btc_df <- btc_diff_df %>%
 ```
 
 ## Cleaned data set summary
+In this section, summary with basic statistics for each of the data sets 
+and their variables was presented. 
 ```{r data-set-summary}
 tribble(
   ~Table, ~`No. of columns (attributes)`, ~`No. of rows (observations)`,
@@ -185,8 +214,26 @@ currency_df %>%
   clean_names(case = 'title') %>%
   datatable(options = list(scrollX = TRUE)) %>% 
   formatRound(c(4:6, 8, 10:15))
+```
+A closer look at the data in `Currency Exchange Rates` data set reveals 
+ambiguity whether currency exchange rates are from given currency to U.S. Dollar
+or vice versa. By looking at exchange rate for Polish Zloty, we can deduce that
+exchange rates in the data set are from U.S. Dollar to Polish Zloty.
+On the other side, looking at exchange rates of Euro or U.K. Pound Sterling
+suggests that the conversion in these cases is reverse; it is common knowledge
+that Euro and U.K. Pound Sterling are more valuable currencies than U.S. Dollar, 
+so their exchange rate should be below `1.0`, but it isn't.
+Therefore, **whole data set was discarded from further analysis**.
 
-# TODO Describe DF is not correct and currency exchange rates are unambiguous
+```{r}
+currency_df %>% 
+  filter(currency %in% c('Polish Zloty', 'U.K. Pound Sterling', 'Euro',
+                         'U.S. Dollar')) %>% 
+  group_by(date) %>% 
+  filter(all(!is.na(exchange_rate))) %>% 
+  tail(4) %>% 
+  clean_names(case = 'title') %>% 
+  kbl() %>% kable_styling()
 ```
 
 ### Gold prices
@@ -221,6 +268,13 @@ btc_df %>%
 ```
 
 ## Finding correlations
+Correlations between World Development Indicators were presented on the 
+interactive correlation heat map below. **Only variables with more than 75%** 
+**complete rate (less than 25% of `NA` values) were selected**.
+
+Hover over cells in the matrix to show correlated variables names 
+and their correlation values.
+
 ```{r wdi-correlations}
 wdi_na_filtered_df <- wdi_cleaned_df %>%
   set_names(wdi_names) %>%
@@ -235,25 +289,51 @@ corr_plot <- wdi_na_filtered_df %>%
   theme(axis.text = element_blank(), axis.ticks = element_blank()) 
 
 ggplotly(corr_plot)
-
-#wdi_cor_df <- wdi_na_filtered_df %>%
-#  select(3:last_col()) %>%
-#  correlate() %>%
-#  shave() %>%
-#  stretch() %>%
-#  filter(abs(r) > 0.6, abs(r) < 0.99) %>%
-#  arrange(desc(abs(r)))
-#
-#datatable(wdi_cor_df) %>% formatRound(3, digits = 5)
 ```
 
-```{r gdp-per-capita-life-expectancy-cor, out.width='100%'}
+### GDP per capita
+Per capita gross domestic product (GDP) measures a country's economic output per
+person and is calculated by dividing the GDP of a country by its population.
+Per capita GDP is a global measure for gauging the prosperity of nations and 
+to analyze the prosperity of a country based on its economic growth.
+
+```{r gdp-per-capita-map-plot, out.width='100%'}
 wdi_map_df <- wdi_cleaned_df %>% 
   filter(!country_name %in% c('Channel Islands', 'Kosovo', 
                               'Low & middle income', 'Low income', 
                               'Lower middle income', 'Middle income', 'World',
                               'Upper middle income', 'High income')) 
 
+wdi_map_df %>%
+  rename(`GDP per capita (USD)` = gdp_per_capita_current_us) %>%
+  plot_geo(locationmode = 'country names') %>%
+  add_trace(z = ~`GDP per capita (USD)`, zmin = 0, zmax = 70000, 
+            color = ~`GDP per capita (USD)`,
+            frame = ~year, 
+            colors = 'Blues',
+            text = ~country_name,
+            locations = ~country_name,
+            marker = list(line = list(color = toRGB("grey"), width = 0.5))) %>%
+  colorbar(title = 'GDP per capita (USD)') %>% 
+  layout(title = 'GDP per capita over years',
+         geo = list(scope = 'world',
+                    projection = list(type = 'natural earth'),
+                    countrycolor = toRGB('grey'),
+                    showcoastlines = TRUE)) %>%  
+  animation_opts(redraw = FALSE) %>%  
+  plotly_build()
+```
+
+#### Correlation between GDP per capita and life expectancy
+Inspired by the [The Intimate Link between Income Levels and Life Expectancy: 
+Global Evidence from 213 Years](https://docs.iza.org/dp10015.pdf) discussion 
+paper, correlation between GDP per capita and life expectancy was explored. 
+
+The first plot presents how GDP per capita and life expectancy changed over
+years in countries grouped by continents. High positive correlation can be 
+deduced by observing the animation, which is confirmed by the following map 
+plot.
+```{r gdp-per-capita-life-expectancy-cor, out.width='100%'}
 wdi_continents_df <- wdi_map_df %>%
   add_column(continent = countrycode(sourcevar = .$country_name,
                                      origin = "country.name",
@@ -302,27 +382,17 @@ wdi_life_expectancy_cor_df %>%
                     showframe = TRUE,
                     showcoastlines = TRUE)) %>%  
   plotly_build()
-
-#wdi_map_df %>%
-#  plot_geo(locationmode = 'country names') %>%
-#  add_trace(z = ~gdp_per_capita_current_us, #zmin = 20, zmax = 150000, 
-#            color = ~gdp_per_capita_current_us,
-#            frame = ~year, 
-#            colors = 'Blues',
-#            text = ~country_name,
-#            locations = ~country_name,
-#            marker = list(line = list(color = toRGB("grey"), width = 0.5))) %>%
-#  colorbar(title = 'GDP per capita (USD)') %>% 
-#  layout(title = 'GDP per capita over years',
-#         geo = list(scope = 'world',
-#                    projection = list(type = 'natural earth'),
-#                    countrycolor = toRGB('grey'),
-#                    showframe = TRUE,
-#                    showcoastlines = TRUE)) %>%  
-#  animation_opts(redraw = F) %>%  
-#  plotly_build()
 ```
 
+#### Correlation between GDP per capita and infant mortality rate
+To validate that there is a large association between per capita GDP and 
+infant mortality rate, as found out by the authors of [Aggregate income shocks and infant mortality in the
+developing world](https://openknowledge.worldbank.org/bitstream/handle/10986/4916/rest_a_00084.pdf;sequence=1)
+article, the variables change over years 1999-2015 was presented 
+in selected countries. 
+
+Once again, high correlation can be deduced from the plots, but this time 
+it is negative, which is confirmed by the following map plot. 
 ```{r gdp-per-capita-mortality-rate-cor, message = FALSE, out.width='100%'}
 infmort_plot <- wdi_continents_df %>%
   filter(country_name %in% c("United States", "Tonga", "Colombia", "Grenada", 
@@ -330,11 +400,12 @@ infmort_plot <- wdi_continents_df %>%
                              "Netherlands"),
          year %in% 1999:2015) %>%
   rename(`GDP per capita (USD)` = gdp_per_capita_current_us,
-         `Mortality rate, infant (per 1,000 live births)` = mortality_rate_infant_per_1_000_live_births,
+         `Infant mortality rate (per 1,000 live births)` =
+           mortality_rate_infant_per_1_000_live_births,
          Continent = continent,
          Country = country_name) %>%
   ggplot(aes(x = `GDP per capita (USD)`, 
-             y = `Mortality rate, infant (per 1,000 live births)`,
+             y = `Infant mortality rate (per 1,000 live births)`,
              color = Continent,
              tooltip = Country)) + 
   geom_point() +
@@ -366,6 +437,11 @@ wdi_mortality_rate_cor_df %>%
   plotly_build()
 ```
 
+### Correlation between gold prices and World Development Indicators
+
+
+Hover over bars in the plot to show correlated variable names 
+and their correlation values.
 ```{r gold-correlation}
 yearly_gold_prices_df <- gold_prices_df %>% 
   mutate(date, gold_price_usd = ifelse(is.na(usd_pm), usd_am, usd_pm)) %>%
@@ -386,11 +462,8 @@ world_joined_df <- wdi_cleaned_df %>%
   set_names(wdi_names) %>%
   inner_join(yearly_gold_prices_df, by = c('Year' = 'year')) %>%
   inner_join(yearly_sp_df, by = c('Year' = 'year')) %>%
-  #inner_join(yearly_btc_prices_df, by = c('Year' = 'year')) %>%
   rename(`Gold price (USD)` = gold_price_usd,
-         `S&P Composite` = sp_composite,
-         #`BTC price (USD)` = btc_price_usd
-         ) %>%
+         `S&P Composite` = sp_composite) %>%
   select(where(~mean(is.na(.)) < 0.25))
 
 world_gold_cor <- world_joined_df %>% 
@@ -402,11 +475,25 @@ world_gold_cor <- world_joined_df %>%
   rename(`Gold price (USD) correlation` = `Gold price (USD)`,
          Variable = term) 
 
+world_gold_cor_plot <- world_gold_cor %>% 
+  ggplot(aes(x = reorder(Variable, `Gold price (USD) correlation`), 
+             y = `Gold price (USD) correlation`,
+             text = paste('Variable:', Variable,
+                          '<br>Gold price (USD) correlation:', 
+                          round(`Gold price (USD) correlation`, digits = 5)))) + 
+  geom_bar(stat = 'identity') + 
+  ylim(-1, 1) +
+  labs(x = 'Variable') + 
+  theme_minimal() + 
+  theme(axis.text.x = element_blank())
+
+ggplotly(world_gold_cor_plot, tooltip = 'text')
+
 datatable(world_gold_cor) %>% formatRound(2, digits = 5)
 ```
 
-## Regressor
-```{r gold-price-regressor, eval=FALSE} 
+## Gold price regressor
+```{r gold-price-regressor} 
 set.seed(23)
 
 top_economic_correlated_variables <- world_gold_cor %>%
@@ -416,7 +503,7 @@ top_economic_correlated_variables <- world_gold_cor %>%
 miss_forest <- world_joined_df %>%
   select(all_of(top_economic_correlated_variables), `Gold price (USD)`) %>%
   as.data.frame() %>%
-  missForest() 
+  missForest(verbose = TRUE) 
 
 print(miss_forest$OOBerror)
 
