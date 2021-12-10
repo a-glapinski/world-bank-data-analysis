@@ -176,11 +176,11 @@ tribble(
 
 ### World Development Indicators
 ```{r wdi-summary}
-#report_table <- function(df, round_digits=2) {
-#  datatable(df, style = 'bootstrap4', rownames = FALSE, filter = 'top',
-#            options = list(scrollX = TRUE)) %>%
-#    formatRound(names(dplyr::select_if(df, is.numeric)), round_digits)
-#}
+report_table <- function(df, round_digits=2) {
+  datatable(df, style = 'bootstrap', rownames = FALSE,
+            options = list(scrollX = TRUE)) %>%
+    formatRound(names(select_if(df, is.numeric)), round_digits)
+}
 
 wdi_skim_df <- wdi_cleaned_df %>% 
   set_names(wdi_names) %>%
@@ -188,12 +188,11 @@ wdi_skim_df <- wdi_cleaned_df %>%
 wdi_skim_df %>%
   yank('factor') %>% 
   clean_names(case = 'title') %>%
-  datatable(options = list(scrollX = TRUE))
+  report_table
 wdi_skim_df %>%
   yank('numeric') %>% 
   clean_names(case = 'title') %>%
-  datatable(options = list(scrollX = TRUE)) %>% 
-  formatRound(3:10)
+  report_table()
 ```
 
 ### Currency Exchange Rates
@@ -202,8 +201,7 @@ currency_df %>%
   clean_names(case = 'title') %>%
   skim() %>% 
   clean_names(case = 'title') %>%
-  datatable(options = list(scrollX = TRUE)) %>% 
-  formatRound(c(4:6, 8, 10:15))
+  report_table()
 ```
 A closer look at the data in `Currency Exchange Rates` data set reveals 
 ambiguity whether currency exchange rates are from given currency to U.S. Dollar
@@ -233,8 +231,7 @@ gold_prices_df %>%
   clean_names(case = 'title', abbreviations = c('USD', 'GBP', 'AM', 'PM')) %>%
   skim() %>%
   clean_names(case = 'title') %>%
-  datatable(options = list(scrollX = TRUE)) %>% 
-  formatRound(4:14)
+  report_table()
 ```
 
 ### S&P Composite
@@ -244,8 +241,7 @@ sp_df %>%
   rename(`S&P Composite` = `S p Composite`) %>%
   skim() %>% 
   clean_names(case = 'title') %>%
-  datatable(options = list(scrollX = TRUE)) %>% 
-  formatRound(4:15)
+  report_table()
 ```
 
 ### Bitcoin
@@ -254,8 +250,7 @@ btc_df %>%
   clean_names(case = 'title', abbreviations = c('USD')) %>%
   skim() %>%
   clean_names(case = 'title') %>%
-  datatable(options = list(scrollX = TRUE)) %>% 
-  formatRound(4:15)
+  report_table()
 ```
 
 ## Finding correlations
@@ -297,7 +292,7 @@ wdi_cor_matrix %>%
   filter(abs(r) > 0.6, abs(r) < 0.9) %>%
   arrange(desc(abs(r))) %>%
   rename(X = x, Y = y, Correlation = r) %>%
-  datatable() %>% formatRound(3, 5)
+  report_table(round_digits = 5)
 ```
 
 ### GDP per capita correlations
@@ -473,11 +468,34 @@ wdi_mortality_rate_cor_df %>%
 ```
 
 ### Correlation between gold prices and World Development Indicators
+To explore correlation between gold prices and global development indicators
+(for example whole world's GDP), several operations on data sets were made:
 
+1. Gold prices data set was grouped by year and stored into
+`yearly_gold_prices_df` data frame
+    + `gold_price_usd` column was added, which is a mean of gold USD prices
+    in the morning and in the afternoon
+    + Rows with `NA` values of `gold_price_usd` column were dropped
+    + Whole data set was grouped by year
+    + Gold price was aggregated, calculating mean gold price per year  
+2. S&P Composite data set was grouped by year and stored into `yearly_sp_df`
+data frame
+    + Whole data set was grouped by year
+    + S&P index was aggregated, calculating mean S&P index per year
+3. Resulting data sets from operations 2. and 3. were merged with data set of
+world's development indicators and stored into `world_joined_df` data frame
+    + Subset of rows with `country_name` equal to `"World"` was selected
+    + Inner join by `year` column with `yearly_gold_prices_df` data set from
+    operation 1. was performed. This way only observations for years with 
+    known gold price were preserved
+    + Left join by `year` column with `yearly_sp_df` data set from operation 2.
+    was performed. This way no observations with known gold price were discarded
 
-Hover over bars in the plot to show correlated variable names 
-and their correlation values.
-```{r gold-correlation}
+Bitcoin prices data set was discarded from further analysis, because 
+it didn't contain data before year 2009 - Bitcoin didn't exist before
+that date. Including it into resulting joined data set would result in more than
+50% observations with `NA` values for Bitcoin price variable.
+```{r}
 yearly_gold_prices_df <- gold_prices_df %>% 
   mutate(gold_price_usd = (usd_am + usd_pm) / 2) %>%
   drop_na(gold_price_usd) %>%
@@ -488,28 +506,25 @@ yearly_sp_df <- sp_df %>%
   group_by(year = year(date)) %>%
   summarize(sp_composite = mean(s_p_composite))
 
-# Discarded due to lack of data before 2009
-#yearly_btc_prices_df <- btc_df %>%
-#  group_by(year = year(date)) %>%
-#  summarize(btc_price_usd = mean(market_price_usd))
-
-world_joined_df <- wdi_cleaned_df %>%
-  filter(country_name == 'World') %>% 
-  set_names(wdi_names) %>%
+world_joined_df <- wdi_na_filtered_df %>%
+  filter(`Country Name` == 'World') %>% 
   inner_join(yearly_gold_prices_df, by = c('Year' = 'year')) %>%
-  inner_join(yearly_sp_df, by = c('Year' = 'year')) %>%
+  left_join(yearly_sp_df, by = c('Year' = 'year')) %>%
   rename(`Gold price (USD)` = gold_price_usd,
-         `S&P Composite` = sp_composite) %>%
-    select(where(~mean(is.na(.)) < 0.25))
+         `S&P Composite` = sp_composite)
+```
 
+On the plot below, all correlations with gold price higher than 0.6
+were presented. Below the plot, the same data was presented in table form.
+```{r fig.height=9}
 world_gold_cor <- world_joined_df %>% 
   select(3:last_col()) %>%
   correlate() %>% 
   focus(`Gold price (USD)`) %>% 
   arrange(desc(abs(`Gold price (USD)`))) %>% 
-  filter(abs(`Gold price (USD)`) > 0.6, abs(`Gold price (USD)`) < 0.9) %>%
+  filter(abs(`Gold price (USD)`) > 0.6) %>%
   rename(`Gold price (USD) correlation` = `Gold price (USD)`,
-         Variable = term) 
+         Variable = term)
 
 world_gold_cor_plot <- world_gold_cor %>% 
   ggplot(aes(x = reorder(Variable, `Gold price (USD) correlation`), 
@@ -517,18 +532,26 @@ world_gold_cor_plot <- world_gold_cor %>%
              text = paste('Variable:', Variable,
                           '<br>Gold price (USD) correlation:', 
                           round(`Gold price (USD) correlation`, digits = 5)))) + 
-  geom_bar(stat = 'identity') + 
+  geom_col() + 
   ylim(-1, 1) +
-  labs(x = 'Variable') + 
-  theme_minimal() + 
-  theme(axis.text.x = element_blank())
+  labs(x = '') + 
+  coord_flip() + 
+  theme_minimal()
 
 ggplotly(world_gold_cor_plot, tooltip = 'text')
 
-datatable(world_gold_cor) %>% formatRound(2, digits = 5)
+report_table(world_gold_cor, round_digits = 5)
 ```
 
 ## Gold price regressor
+ 
+
+Data set was split into training and testing partitions in 70/30 ratio. 
+
+Missing values were imputed by using `missForest` library, which is based on
+Random Forest algorithm. `missForest` is one of the most accurate imputation 
+methods, but at the cost of slow processing time. In this case, slow processing 
+time is not a problem, because input data set is relatively small.
 ```{r gold-price-regressor} 
 set.seed(23)
 
