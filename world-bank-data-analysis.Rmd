@@ -4,18 +4,14 @@ author: "Adrian Glapiński"
 date: "`r format(Sys.time(), '%d/%m/%Y')`"
 output: 
   html_document: 
-    keep_md: false
-    df_print: kable
     code_folding: "hide"
     toc: true
     toc_float: true
-    number_sections: false
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_chunk$set(message = FALSE)
-knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, 
+                      out.width = "100%")
 ```
 
 ## Executive summary
@@ -23,26 +19,8 @@ TODO
 
 ## Libraries used
 Following libraries and dependencies were used in the report:
- - `knitr`
- - `kableExtra`
- - `DT`
- - `tidyverse`
- - `readxl`
- - `janitor`
- - `lubridate`
- - `skimr`
- - `corrr`
- - `ggplot2`
- - `ggthemes`
- - `gganimate`
- - `ggcorrplot`
- - `plotly`
- - `caret`
- - `missForest`
- - `countrycode`
 
-```{r load-libraries, message=FALSE}
-#class.source="fold-show"
+```{r load-libraries, message=FALSE, class.source="fold-show"}
 library(knitr)
 
 library(kableExtra)
@@ -104,7 +82,10 @@ btc_trvou_df <- read_csv('./data/bitcoin/BCHAIN-TRVOU.csv')
 While cleaning each data set, decisions described below were made.
 
 ### World Development Indicators
-1. `Country Code` and `Series Code` columns were dropped
+0. As part of loading data, empty and `..` values were interpreted as `NA`
+values and last 5 rows were dropped.
+1. `Country Code` and `Series Code` columns were dropped, as they 
+were not useful in further analysis
 2. All columns except `Country Name` and `Series Name` were pivoted into 
 longer format; names of columns were stored into `Year` column 
 3. All columns were pivoted into wider format, taking column names from 
@@ -126,15 +107,18 @@ wdi_cleaned_df <- set_names(wdi_cleaned_df, names(wdi_names))
 ```
 
 ### Currency Exchange Rates
+0. As part of loading data, `Date` column was parsed as column of `date` type
 1. All columns except `Date` were pivoted into longer format; names of columns
 were stored into `currency` column, values were stored into `exchange_rate` 
 column
-2. Column names were cleaned - all words were transformed into `snake_case`
-3. `currency` column was mutated into column of `factor` type
+2. Rows with `NA` values were dropped
+3. Column names were cleaned - all words were transformed into `snake_case`
+4. `currency` column was mutated into column of `factor` type
 ```{r clean-currency-data-set}
 currency_df <- currency_df %>%
   pivot_longer(cols = -Date, names_to = 'currency',
                values_to = 'exchange_rate') %>%
+  drop_na() %>%
   clean_names() %>%
   mutate(currency = as_factor(currency))
 ```
@@ -192,6 +176,12 @@ tribble(
 
 ### World Development Indicators
 ```{r wdi-summary}
+#report_table <- function(df, round_digits=2) {
+#  datatable(df, style = 'bootstrap4', rownames = FALSE, filter = 'top',
+#            options = list(scrollX = TRUE)) %>%
+#    formatRound(names(dplyr::select_if(df, is.numeric)), round_digits)
+#}
+
 wdi_skim_df <- wdi_cleaned_df %>% 
   set_names(wdi_names) %>%
   skim() 
@@ -228,9 +218,10 @@ Therefore, **whole data set was discarded from further analysis**.
 ```{r}
 currency_df %>% 
   filter(currency %in% c('Polish Zloty', 'U.K. Pound Sterling', 'Euro',
-                         'U.S. Dollar')) %>% 
+                         'U.S. Dollar')) %>%
   group_by(date) %>% 
-  filter(all(!is.na(exchange_rate))) %>% 
+  filter(all(c('Polish Zloty', 'U.K. Pound Sterling', 'Euro', 'U.S. Dollar')
+               %in% currency)) %>% 
   tail(4) %>% 
   clean_names(case = 'title') %>% 
   kbl() %>% kable_styling()
@@ -269,20 +260,24 @@ btc_df %>%
 
 ## Finding correlations
 Correlations between World Development Indicators were presented on the 
-interactive correlation heat map below. **Only variables with more than 75%** 
-**complete rate (less than 25% of `NA` values) were selected**.
+interactive correlation heat map below. **Only variables with more than 50%** 
+**complete rate (less than 50% of `NA` values) were selected**.
+Correlation was calculated using the `pairwise.complete.obs` option which 
+ensures that only complete pairs of observations of variables were used.
 
-Hover over cells in the matrix to show correlated variables names 
+Hover over cells in the heat map to show correlated variables names 
 and their correlation values.
-
 ```{r wdi-correlations}
 wdi_na_filtered_df <- wdi_cleaned_df %>%
   set_names(wdi_names) %>%
-  select(where(~mean(is.na(.)) < 0.25))
+  select(where(~mean(is.na(.)) < 0.50))
 
-corr_plot <- wdi_na_filtered_df %>%
+wdi_cor_matrix <- wdi_na_filtered_df %>%
   select(3:last_col()) %>%
-  cor(use = 'pairwise.complete.obs') %>% 
+  cor(use = 'pairwise.complete.obs')
+wdi_cor_matrix[!lower.tri(wdi_cor_matrix)] <- NA
+
+corr_plot <- wdi_cor_matrix %>% 
   ggcorrplot() +
   labs(x = 'Variable 1', y = 'Variable 2') + 
   theme_classic() +
@@ -291,13 +286,26 @@ corr_plot <- wdi_na_filtered_df %>%
 ggplotly(corr_plot)
 ```
 
-### GDP per capita
+Below the heat map, table with all correlations in range (0.6, 0.9) was also 
+included. Pair of variables with correlation higher than 0.9 were excluded,
+because they showed obvious relationships between variables, like percentage
+of urban and rural population or percentage of male and female population.
+```{r}
+wdi_cor_matrix %>%
+  as_cordf() %>%
+  stretch() %>% 
+  filter(abs(r) > 0.6, abs(r) < 0.9) %>%
+  arrange(desc(abs(r))) %>%
+  rename(X = x, Y = y, Correlation = r) %>%
+  datatable() %>% formatRound(3, 5)
+```
+
+### GDP per capita correlations
 Per capita gross domestic product (GDP) measures a country's economic output per
 person and is calculated by dividing the GDP of a country by its population.
-Per capita GDP is a global measure for gauging the prosperity of nations and 
-to analyze the prosperity of a country based on its economic growth.
+Per capita GDP is a global measure used for gauging the prosperity of nations.
 
-```{r gdp-per-capita-map-plot, out.width='100%'}
+```{r}
 wdi_map_df <- wdi_cleaned_df %>% 
   filter(!country_name %in% c('Channel Islands', 'Kosovo', 
                               'Low & middle income', 'Low income', 
@@ -325,21 +333,38 @@ wdi_map_df %>%
 ```
 
 #### Correlation between GDP per capita and life expectancy
-Inspired by the [The Intimate Link between Income Levels and Life Expectancy: 
-Global Evidence from 213 Years](https://docs.iza.org/dp10015.pdf) discussion 
-paper, correlation between GDP per capita and life expectancy was explored. 
-
-The first plot presents how GDP per capita and life expectancy changed over
-years in countries grouped by continents. High positive correlation can be 
-deduced by observing the animation, which is confirmed by the following map 
-plot.
-```{r gdp-per-capita-life-expectancy-cor, out.width='100%'}
+Preston curve is an empirical relationship between life expectancy 
+and GDP per capita. It indicates that individuals born in richer countries, 
+on average, can expect to live longer than those born in poor countries. 
+The first plot is a reproduction of the Preston curve for year 2019 
+and countries with GDP per capita below 70000 USD.
+```{r}
 wdi_continents_df <- wdi_map_df %>%
   add_column(continent = countrycode(sourcevar = .$country_name,
                                      origin = "country.name",
                                      destination = "continent")) %>%
   relocate(continent)
 
+preston_curve_plot <- wdi_continents_df %>% 
+  filter(year == 2019, gdp_per_capita_current_us < 70000) %>%
+  ggplot(aes(x = gdp_per_capita_current_us, y = life_expectancy_at_birth_total_years)) +
+  geom_point(aes(color = continent, 
+                text = paste('Country:', country_name,
+                             '<br>Continent:', continent,
+                             '<br>GDP per capita (USD):', round(gdp_per_capita_current_us),
+                             '<br>Life expectancy (years):', round(life_expectancy_at_birth_total_years, digits = 2)))) +
+  labs(x = 'GDP per capita (USD)',
+       y = 'Life expectancy (years)', 
+       color = "Continent") + 
+  geom_smooth(se = FALSE)
+
+ggplotly(preston_curve_plot, tooltip = 'text')
+```
+
+The second plot presents how GDP per capita and life expectancy changed over
+years in countries grouped by continents. It shows that in general, countries
+with higher GDP tend to have a higher life expectancy.
+```{r}
 wdi_continents_df %>%
   ggplot(aes(gdp_per_capita_current_us, 
              life_expectancy_at_birth_total_years, 
@@ -359,7 +384,11 @@ wdi_continents_df %>%
        caption = "") +
   transition_time(year) +
   ease_aes('linear') 
+```
 
+High positive  correlation can be immediately deduced by observing the 
+animation, which is also confirmed by the following map plot.
+```{r}
 wdi_life_expectancy_cor_df <- wdi_map_df %>% 
   group_by(country_name) %>%
   summarize(correlation = cor(gdp_per_capita_current_us,
@@ -384,16 +413,18 @@ wdi_life_expectancy_cor_df %>%
   plotly_build()
 ```
 
-#### Correlation between GDP per capita and infant mortality rate
-To validate that there is a large association between per capita GDP and 
-infant mortality rate, as found out by the authors of [Aggregate income shocks and infant mortality in the
-developing world](https://openknowledge.worldbank.org/bitstream/handle/10986/4916/rest_a_00084.pdf;sequence=1)
-article, the variables change over years 1999-2015 was presented 
-in selected countries. 
+Standard of living is the material well being of the average person in a
+given population. Life expectancy increases with the standard of living.
+GDP per capita is a good approximation for standard of living,
+which explains why there is a high correlation between GDP per capita and 
+life expectancy.
 
-Once again, high correlation can be deduced from the plots, but this time 
-it is negative, which is confirmed by the following map plot. 
-```{r gdp-per-capita-mortality-rate-cor, message = FALSE, out.width='100%'}
+#### Correlation between GDP per capita and infant mortality rate
+To validate that decrease in per capita GDP is associated with an increase in 
+infant mortality rate, as found by the authors of 
+[Aggregate Income Shocks and Infant Mortality in the Developing World paper](https://www2.gwu.edu/~iiep/assets/docs/papers/Baird_IIEPWP2010-7.pdf), 
+the variables change over years 1999-2015 was presented in selected countries. 
+```{r message = FALSE, out.width='100%'}
 infmort_plot <- wdi_continents_df %>%
   filter(country_name %in% c("United States", "Tonga", "Colombia", "Grenada", 
                              "Sri Lanka", "Malta", "Germany", "Japan", "Sweden", 
@@ -412,7 +443,11 @@ infmort_plot <- wdi_continents_df %>%
   facet_wrap(~year)
 
 ggplotly(infmort_plot)
+```
 
+Once again, high correlation can be deduced from the plots, but this time 
+it is negative, which is confirmed by the following map plot. 
+```{r}
 wdi_mortality_rate_cor_df <- wdi_map_df %>% 
   group_by(country_name) %>%
   summarize(correlation = cor(gdp_per_capita_current_us,
@@ -444,7 +479,8 @@ Hover over bars in the plot to show correlated variable names
 and their correlation values.
 ```{r gold-correlation}
 yearly_gold_prices_df <- gold_prices_df %>% 
-  mutate(date, gold_price_usd = ifelse(is.na(usd_pm), usd_am, usd_pm)) %>%
+  mutate(gold_price_usd = (usd_am + usd_pm) / 2) %>%
+  drop_na(gold_price_usd) %>%
   group_by(year = year(date)) %>% 
   summarize(gold_price_usd = mean(gold_price_usd))
 
@@ -464,14 +500,14 @@ world_joined_df <- wdi_cleaned_df %>%
   inner_join(yearly_sp_df, by = c('Year' = 'year')) %>%
   rename(`Gold price (USD)` = gold_price_usd,
          `S&P Composite` = sp_composite) %>%
-  select(where(~mean(is.na(.)) < 0.25))
+    select(where(~mean(is.na(.)) < 0.25))
 
 world_gold_cor <- world_joined_df %>% 
   select(3:last_col()) %>%
   correlate() %>% 
   focus(`Gold price (USD)`) %>% 
   arrange(desc(abs(`Gold price (USD)`))) %>% 
-  filter(abs(`Gold price (USD)`) > 0.6, abs(`Gold price (USD)`) < 0.95) %>%
+  filter(abs(`Gold price (USD)`) > 0.6, abs(`Gold price (USD)`) < 0.9) %>%
   rename(`Gold price (USD) correlation` = `Gold price (USD)`,
          Variable = term) 
 
