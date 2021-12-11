@@ -12,15 +12,17 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, 
                       out.width = "100%")
+set.seed(2304)
 ```
 
 ## Executive summary
-TODO
+In this report, firstly, all data sets were cleaned and then a comprehensive
+summary with statistics was presented for each of them. Then, 
 
 ## Libraries used
 Following libraries and dependencies were used in the report:
 
-```{r load-libraries, message=FALSE, class.source="fold-show"}
+```{r load-libraries, class.source="fold-show"}
 library(knitr)
 
 library(kableExtra)
@@ -57,7 +59,7 @@ Bitcoin trading, and the monthly performance of the S&P Composite.
 The data was collected by various institutions, 
 notably the World Bank and Nasdaq.
 
-```{r load-data, message=FALSE}
+```{r load-data}
 # https://data.worldbank.org/
 wdi_df <- read_excel('./data/World_Development_Indicators.xlsx', 
                      na = c('', '..')) %>% head(-5)
@@ -83,7 +85,8 @@ While cleaning each data set, decisions described below were made.
 
 ### World Development Indicators
 0. As part of loading data, empty and `..` values were interpreted as `NA`
-values and last 5 rows were dropped.
+values. Last 5 rows were also dropped, because they contained data set metadata,
+such as last update date.
 1. `Country Code` and `Series Code` columns were dropped, as they 
 were not useful in further analysis
 2. All columns except `Country Name` and `Series Name` were pivoted into 
@@ -357,8 +360,10 @@ ggplotly(preston_curve_plot, tooltip = 'text')
 ```
 
 The second plot presents how GDP per capita and life expectancy changed over
-years in countries grouped by continents. It shows that in general, countries
-with higher GDP tend to have a higher life expectancy.
+years in countries grouped by continents. It also shows that in general, 
+countries with higher GDP tend to have a higher life expectancy. It shows
+that with passing years standard of living is improving across the world
+as well.
 ```{r}
 wdi_continents_df %>%
   ggplot(aes(gdp_per_capita_current_us, 
@@ -381,7 +386,7 @@ wdi_continents_df %>%
   ease_aes('linear') 
 ```
 
-High positive  correlation can be immediately deduced by observing the 
+High positive correlation can be immediately deduced by observing the 
 animation, which is also confirmed by the following map plot.
 ```{r}
 wdi_life_expectancy_cor_df <- wdi_map_df %>% 
@@ -419,7 +424,7 @@ To validate that decrease in per capita GDP is associated with an increase in
 infant mortality rate, as found by the authors of 
 [Aggregate Income Shocks and Infant Mortality in the Developing World paper](https://www2.gwu.edu/~iiep/assets/docs/papers/Baird_IIEPWP2010-7.pdf), 
 the variables change over years 1999-2015 was presented in selected countries. 
-```{r message = FALSE, out.width='100%'}
+```{r}
 infmort_plot <- wdi_continents_df %>%
   filter(country_name %in% c("United States", "Tonga", "Colombia", "Grenada", 
                              "Sri Lanka", "Malta", "Germany", "Japan", "Sweden", 
@@ -485,6 +490,7 @@ data frame
 3. Resulting data sets from operations 2. and 3. were merged with data set of
 world's development indicators and stored into `world_joined_df` data frame
     + Subset of rows with `country_name` equal to `"World"` was selected
+    from data set which only includes columns with less than 50% of `NA` values
     + Inner join by `year` column with `yearly_gold_prices_df` data set from
     operation 1. was performed. This way only observations for years with 
     known gold price were preserved
@@ -514,19 +520,50 @@ world_joined_df <- wdi_na_filtered_df %>%
          `S&P Composite` = sp_composite)
 ```
 
-On the plot below, all correlations with gold price higher than 0.6
-were presented. Below the plot, the same data was presented in table form.
-```{r fig.height=9}
-world_gold_cor <- world_joined_df %>% 
+In the table below, all absolute correlations with gold price higher than 0.6
+were presented.
+```{r}
+world_cor <- world_joined_df %>%
   select(3:last_col()) %>%
-  correlate() %>% 
+  cor(use = 'pairwise.complete.obs') %>%
+  remove_empty()
+
+world_gold_cor <- world_cor %>% 
+  as_cordf() %>%
   focus(`Gold price (USD)`) %>% 
   arrange(desc(abs(`Gold price (USD)`))) %>% 
   filter(abs(`Gold price (USD)`) > 0.6) %>%
   rename(`Gold price (USD) correlation` = `Gold price (USD)`,
          Variable = term)
 
-world_gold_cor_plot <- world_gold_cor %>% 
+report_table(world_gold_cor, round_digits = 5)
+```
+
+## Gold price regressor
+### Reducing pair-wise correlations
+Since in the table of gold correlations with other variables there is more than
+50 variables with absolute correlation higher than 0.6, `caret::findCorrelation`
+function with `cutoff` parameter set to `0.9` was used to reduce 
+pair-wise correlations. 
+```{r}
+vars_to_be_removed <- world_cor %>% findCorrelation()
+
+world_gold_cor_subset <- world_joined_df %>% 
+  select(3:last_col()) %>%
+  select(!all_of(vars_to_be_removed)) %>%
+  correlate() %>%
+  focus(`Gold price (USD)`) %>%
+  arrange(desc(abs(`Gold price (USD)`))) %>% 
+  filter(abs(`Gold price (USD)`) > 0.6) %>%
+  rename(`Gold price (USD) correlation` = `Gold price (USD)`,
+         Variable = term)
+
+correlated_variables <- world_gold_cor_subset %>% pull(Variable)
+```
+
+Most significant correlations were presented on the graph below.
+```{r}
+world_gold_cor_plot <- world_gold_cor_subset %>% 
   ggplot(aes(x = reorder(Variable, `Gold price (USD) correlation`), 
              y = `Gold price (USD) correlation`,
              text = paste('Variable:', Variable,
@@ -539,49 +576,64 @@ world_gold_cor_plot <- world_gold_cor %>%
   theme_minimal()
 
 ggplotly(world_gold_cor_plot, tooltip = 'text')
-
-report_table(world_gold_cor, round_digits = 5)
 ```
 
-## Gold price regressor
- 
-
-Data set was split into training and testing partitions in 70/30 ratio. 
+### Handling missing values
+Before training the model, there is a need to handle `NA` values in the data
+set in some way. 
 
 Missing values were imputed by using `missForest` library, which is based on
 Random Forest algorithm. `missForest` is one of the most accurate imputation 
 methods, but at the cost of slow processing time. In this case, slow processing 
 time is not a problem, because input data set is relatively small.
-```{r gold-price-regressor} 
-set.seed(23)
-
-top_economic_correlated_variables <- world_gold_cor %>%
-  pull(Variable) %>%
-  .[c(2, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14, 35, 37, 38, 40, 41)]
-
+```{r}
 miss_forest <- world_joined_df %>%
-  select(all_of(top_economic_correlated_variables), `Gold price (USD)`) %>%
+  select(3:last_col()) %>%
   as.data.frame() %>%
   missForest(verbose = TRUE) 
 
 print(miss_forest$OOBerror)
+```
 
-imputed_df <- miss_forest$ximp
+### Training the model
+Data set was split into training and testing partitions in 75/25 ratio. 
+```{r}
+imputed_df <- miss_forest$ximp %>%
+  select(all_of(correlated_variables)) %>%
+  cbind(`Gold price (USD)` = world_joined_df$`Gold price (USD)`)
 
 train_index <- createDataPartition(imputed_df$`Gold price (USD)`, 
-                                   p = .70, 
+                                   p = 0.75, 
                                    list = FALSE)
 train_data <- imputed_df[train_index,]
 test_data <- imputed_df[-train_index,]
+```
 
+The following graph shows the similarity of the distributions 
+of the training and test data. Since data consists only of `r nrow(imputed_df)`
+observations, there is some discrepancy between training and testing data
+partitions.
+```{r}
+ggplot() +
+  geom_density(aes(`Gold price (USD)`, fill = "Train"), train_data, alpha = 0.6) +
+  geom_density(aes(`Gold price (USD)`, fill = "Test"), test_data, alpha = 0.6) +
+  labs(x = "Gold price (USD)", y = "Density", fill = "Partition data set")
+```
+
+
+```{r}
 ctrl <- trainControl(method = "repeatedcv",
                      number = 5,
                      repeats = 5)
 
 fit <- train(`Gold price (USD)` ~ .,
              data = train_data,
-             method = "glmnet",
+             method = "rf",
              trControl = ctrl)
 
-varImp(fit)
+ggplot(varImp(fit))
+```
+
+```{r}
+
 ```
