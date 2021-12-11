@@ -17,7 +17,15 @@ set.seed(18)
 
 ## Executive summary
 In this report, firstly, all data sets were cleaned and then a comprehensive
-summary with statistics was presented for each of them. Then, 
+summary with statistics was presented for each of them. Then, interesting
+relationships between World Development Indicators were explored. Correlations
+between most of the indicators were presented for general overview. 
+Subsequently, more specific correlations between GDP per capita were shown,
+with visualizations. For example, association between GDP per capita and 
+life expectancy was inspected. Afterwards, correlations of World Development
+Indicators with gold prices were analyzed, as preparation for creating a 
+gold price prediction model. Lastly, using gathered knowledge, a regression 
+model was created, which predicts gold prices with sufficient accuracy.
 
 ## Libraries used
 Following libraries and dependencies were used in the report:
@@ -213,7 +221,7 @@ exchange rates in the data set are from U.S. Dollar to Polish Zloty.
 On the other side, looking at exchange rates of Euro or U.K. Pound Sterling
 suggests that the conversion in these cases is reverse; it is common knowledge
 that Euro and U.K. Pound Sterling are more valuable currencies than U.S. Dollar, 
-so their exchange rate should be below `1.0`, but it isn't.
+so their exchange rate should be below `1.0`, but it is above `1.0`.
 Therefore, **whole data set was discarded from further analysis**.
 
 ```{r}
@@ -672,3 +680,16 @@ ggplot(prediction_comparison_df, aes(x = year)) +
 ```{r}
 ggplot(varImp(fit))
 ```
+By looking at the above plot, it turned out that pure economic indicators,
+such as GDP, GDP per capita and gross national expenditure were the 
+most important in predicting gold prices. 
+
+Following them were environment-related variables, such as CO2 emissions
+from liquid fuel consumption. 
+
+Lastly, another important group of indicators was related to
+population. The reason for importance of these variables might be the fact
+that population is growing faster than supply of gold.
+It can be expected that a significant percentage of population
+will be willing to purchase jewelry or electronic products, whose manufacture 
+uses gold.
