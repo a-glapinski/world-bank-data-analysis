@@ -12,7 +12,7 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, 
                       out.width = "100%")
-set.seed(2304)
+set.seed(18)
 ```
 
 ## Executive summary
@@ -597,22 +597,29 @@ print(miss_forest$OOBerror)
 
 ### Training the model
 Data set was split into training and testing partitions in 75/25 ratio. 
+A validation set was created using repeated cross-validation with
+number of divisions equal to 2 and number of repetitions equal to 5.
 ```{r}
 imputed_df <- miss_forest$ximp %>%
   select(all_of(correlated_variables)) %>%
-  cbind(`Gold price (USD)` = world_joined_df$`Gold price (USD)`)
+  cbind(Year = world_joined_df$Year,
+        `Gold price (USD)` = world_joined_df$`Gold price (USD)`)
 
 train_index <- createDataPartition(imputed_df$`Gold price (USD)`, 
                                    p = 0.75, 
                                    list = FALSE)
 train_data <- imputed_df[train_index,]
 test_data <- imputed_df[-train_index,]
+
+ctrl <- trainControl(method = "repeatedcv",
+                     number = 2,
+                     repeats = 5)
 ```
 
 The following graph shows the similarity of the distributions 
-of the training and test data. Since data consists only of `r nrow(imputed_df)`
-observations, there is some discrepancy between training and testing data
-partitions.
+of the training and test data. Since input data consists only of 
+`r nrow(imputed_df)` observations, there is some discrepancy between training 
+and testing data partitions.
 ```{r}
 ggplot() +
   geom_density(aes(`Gold price (USD)`, fill = "Train"), train_data, alpha = 0.6) +
@@ -620,20 +627,48 @@ ggplot() +
   labs(x = "Gold price (USD)", y = "Density", fill = "Partition data set")
 ```
 
-
+Random Forest regression model was used to predict the gold prices.
 ```{r}
-ctrl <- trainControl(method = "repeatedcv",
-                     number = 5,
-                     repeats = 5)
-
-fit <- train(`Gold price (USD)` ~ .,
+fit <- train(`Gold price (USD)` ~ . - Year,
              data = train_data,
              method = "rf",
              trControl = ctrl)
 
-ggplot(varImp(fit))
+fit
 ```
 
-```{r}
+Two measures, `R2` and `RMSE`, were used to assess prediction accuracy.
 
+`R2` measures the strength of the relationship between the model and 
+the dependent variable on a 0 – 100% scale.
+
+Whereas R-squared is a relative measure of fit, `RMSE` is an absolute 
+measure of fit. RMSE is a good measure of how accurately the model predicts 
+the response.
+
+```{r}
+prediction <- predict(fit, test_data)
+
+post_resample <- postResample(pred = prediction,
+                              obs = test_data$`Gold price (USD)`)
+post_resample
+```
+`R2` value of `r post_resample['Rsquared']` 
+and `RMSE` value of `r post_resample['RMSE']` mean that model is accurate.
+
+The following graph shows the test set values and the model output values.
+```{r}
+prediction_comparison_df <- tibble(year = test_data$Year, 
+                                   actual = test_data$`Gold price (USD)`,
+                                   predicted = prediction)
+
+ggplot(prediction_comparison_df, aes(x = year)) +
+  geom_line(aes(y = actual, color = "Test data set")) +
+  geom_line(aes(y = predicted, color = "Predicted")) +
+  labs(color = "Values", x = "Year", y = "Gold price (USD)")
+```
+
+### Variable importance
+```{r}
+ggplot(varImp(fit))
 ```
