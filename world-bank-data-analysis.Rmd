@@ -188,7 +188,7 @@ tribble(
 ### World Development Indicators
 ```{r wdi-summary}
 report_table <- function(df, round_digits=2) {
-  datatable(df, style = 'bootstrap', rownames = FALSE,
+  datatable(df, style = 'bootstrap4', rownames = FALSE,
             options = list(scrollX = TRUE)) %>%
     formatRound(names(select_if(df, is.numeric)), round_digits)
 }
